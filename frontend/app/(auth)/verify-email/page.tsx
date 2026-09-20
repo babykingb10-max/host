@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
@@ -8,7 +8,7 @@ import { authApi } from '@/lib/api/auth';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
 
-export default function VerifyEmailPage() {
+function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
   const [state, setState] = useState<'loading' | 'success' | 'error'>('loading');
@@ -67,5 +67,13 @@ export default function VerifyEmailPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={null}>
+      <VerifyEmailContent />
+    </Suspense>
   );
 }
