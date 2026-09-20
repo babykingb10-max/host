@@ -1,0 +1,2 @@
+web: node dist/apps/api/src/main.js
+worker: node dist/apps/api/src/workers/worker.main.js
