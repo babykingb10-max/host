@@ -88,7 +88,7 @@ async function main() {
   console.log('Seed complete.');
 }
 
-async function seedDevCatalogAndSettings() {
+async function seedPlatformCatalogAndSettings() {
   console.log('Seeding system settings...');
   await prisma.systemSetting.upsert({
     where: { key: 'projects.maxPerUser.free' },
@@ -390,9 +390,7 @@ async function seedDevCatalogAndSettings() {
 
 main()
   .then(async () => {
-    if (process.env.NODE_ENV !== 'production') {
-      await seedDevCatalogAndSettings();
-    }
+    await seedPlatformCatalogAndSettings();
   })
   .catch((err) => {
     console.error(err);
