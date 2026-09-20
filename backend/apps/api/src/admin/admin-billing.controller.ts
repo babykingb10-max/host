@@ -31,7 +31,7 @@ export class AdminBillingService {
 
   async updatePlan(adminUserId: string, adminRole: string, tier: SubscriptionPlanTier, input: UpdatePlanInput) {
     const plan = await this.prisma.subscriptionPlan.update({ where: { tier }, data: input });
-    await this.audit.record({ actorUserId: adminUserId, actorRole: adminRole, action: 'ADMIN_UPDATED_PLAN', targetType: 'SubscriptionPlan', targetId: tier, metadata: input });
+    await this.audit.record({ actorUserId: adminUserId, actorRole: adminRole, action: 'ADMIN_UPDATED_PLAN', targetType: 'SubscriptionPlan', targetId: tier, metadata: { ...input } });
     return plan;
   }
 
