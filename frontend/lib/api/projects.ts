@@ -48,7 +48,7 @@ function toQueryString(params: Record<string, string | number | undefined>): str
 }
 
 export const projectsApi = {
-  list: (params: ListProjectsParams = {}) => api.get<PaginatedProjects>(`/v1/projects${toQueryString(params)}`),
+  list: (params: ListProjectsParams = {}) => api.get<PaginatedProjects>(`/v1/projects${toQueryString(params as never)}`),
   get: (id: string) => api.get<ProjectListItem>(`/v1/projects/${id}`),
   create: (payload: { name: string; serviceId: string; servicePlanId: string }) =>
     api.post<ProjectListItem>('/v1/projects', payload),
