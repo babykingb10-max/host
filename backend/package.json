@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Adevos-X Tech Host Platform — Backend API (NestJS modular monolith + workers)",
+  "prisma": {
+    "seed": "node dist/prisma/seed.js"
+  },
   "scripts": {
     "prebuild": "prisma generate",
     "build": "nest build",
