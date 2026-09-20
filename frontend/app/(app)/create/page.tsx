@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { ArrowLeft, Check } from 'lucide-react';
@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
 import type { PublicService } from '@/lib/api/public';
 
-export default function CreateProjectPage() {
+function CreateProjectContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const servicesQuery = useServices();
@@ -152,5 +152,13 @@ export default function CreateProjectPage() {
         Create Project
       </Button>
     </div>
+  );
+}
+
+export default function CreateProjectPage() {
+  return (
+    <Suspense fallback={null}>
+      <CreateProjectContent />
+    </Suspense>
   );
 }
