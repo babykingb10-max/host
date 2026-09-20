@@ -44,7 +44,9 @@ export default function ProjectDetailPage() {
 
   const handleDeploy = async () => {
     try {
-      const result = await deployMutation.mutateAsync(chosenSource ? { source: chosenSource } : undefined);
+      const result = await deployMutation.mutateAsync(
+        chosenSource ? { source: chosenSource as unknown as Record<string, unknown> } : undefined,
+      );
       setActiveDeploymentId(result.deploymentId);
       setTab('overview');
     } catch (err) {
