@@ -203,11 +203,9 @@ model UserRole {
 // PHASE 2: SERVICE CATALOG & PROJECTS
 // ---------------------------------------------------------------------------
 
-/**
- * The dynamic service catalog (spec §8, §86). Never hardcode service
- * types in the frontend — everything the UI needs to render a service
- * card and drive the deployment wizard lives here.
- */
+// The dynamic service catalog (spec §8, §86). Never hardcode service
+// types in the frontend — everything the UI needs to render a service
+// card and drive the deployment wizard lives here.
 model Service {
   id                String   @id @default(uuid())
   slug              String   @unique // e.g. "whatsapp-bot", "node-app"
@@ -335,12 +333,10 @@ model ProjectEnvironmentVariable {
   @@map("project_environment_variables")
 }
 
-/**
- * Generic admin-configurable key/value settings (spec §67). Used from
- * Phase 2 onward for things like default project quotas so they're
- * never hardcoded; grows into the full Admin > Settings surface in
- * Phase 9.
- */
+// Generic admin-configurable key/value settings (spec §67). Used from
+// Phase 2 onward for things like default project quotas so they're
+// never hardcoded; grows into the full Admin > Settings surface in
+// Phase 9.
 model SystemSetting {
   key       String   @id
   value     Json
@@ -391,7 +387,7 @@ model Provider {
   @@map("providers")
 }
 
-/** Secrets only — always encrypted via EncryptionService before storage (spec §50, §57). */
+// Secrets only — always encrypted via EncryptionService before storage (spec §50, §57).
 model ProviderCredential {
   id                String   @id @default(uuid())
   providerId        String   @unique
@@ -409,12 +405,10 @@ enum RoutingRole {
   DISABLED
 }
 
-/**
- * Admin-configurable routing rules (spec §12, §58, §101). The Provider
- * Router queries these — ordered by role then priority — to decide
- * which provider handles a given service/plan/region combination.
- * Never hardcode routing decisions in application code.
- */
+// Admin-configurable routing rules (spec §12, §58, §101). The Provider
+// Router queries these — ordered by role then priority — to decide
+// which provider handles a given service/plan/region combination.
+// Never hardcode routing decisions in application code.
 model ProviderRoutingRule {
   id         String      @id @default(uuid())
   serviceId  String
@@ -505,12 +499,10 @@ model GithubAccount {
   @@map("github_accounts")
 }
 
-/**
- * Explicit, indexed link between a project and the GitHub repo/branch
- * it deploys from — created when a GitHub-sourced deploy is triggered.
- * Lets the webhook handler find the target project without scanning
- * JSON blobs (spec §17: "Support optional automatic deployments").
- */
+// Explicit, indexed link between a project and the GitHub repo/branch
+// it deploys from — created when a GitHub-sourced deploy is triggered.
+// Lets the webhook handler find the target project without scanning
+// JSON blobs (spec §17: "Support optional automatic deployments").
 model GithubRepositoryLink {
   id         String   @id @default(uuid())
   projectId  String   @unique
@@ -525,7 +517,7 @@ model GithubRepositoryLink {
   @@map("github_repository_links")
 }
 
-/** Dedup table for webhook idempotency (spec §17, §45). */
+// Dedup table for webhook idempotency (spec §17, §45).
 model GithubWebhookDelivery {
   deliveryId String   @id // GitHub's X-GitHub-Delivery header — globally unique per event
   eventType  String
@@ -652,14 +644,12 @@ enum PairingSessionStatus {
   CANCELLED
 }
 
-/**
- * One active pairing attempt per project. QR_CODE and
- * PAIRING_CODE_SESSION_WHATSAPP modes are fulfilled by the deployed bot
- * container itself (it performs the actual WhatsApp multi-device link
- * and reports back) — see PairingCallbackController. API-based modes
- * are fulfilled synchronously by PairingService calling the configured
- * external adapter (spec §15).
- */
+// One active pairing attempt per project. QR_CODE and
+// PAIRING_CODE_SESSION_WHATSAPP modes are fulfilled by the deployed bot
+// container itself (it performs the actual WhatsApp multi-device link
+// and reports back) — see PairingCallbackController. API-based modes
+// are fulfilled synchronously by PairingService calling the configured
+// external adapter (spec §15).
 model PairingSession {
   id          String                @id @default(uuid())
   projectId   String                @unique
@@ -705,11 +695,9 @@ enum CreditTransactionType {
   SUBSCRIPTION_PURCHASE
 }
 
-/**
- * Append-only ledger — the wallet's `balance` is a cached sum, never
- * the source of truth by itself. Every mutation goes through
- * CreditsService inside a transaction that writes both (spec §31).
- */
+// Append-only ledger — the wallet's `balance` is a cached sum, never
+// the source of truth by itself. Every mutation goes through
+// CreditsService inside a transaction that writes both (spec §31).
 model CreditTransaction {
   id        String                 @id @default(uuid())
   walletId  String
@@ -861,10 +849,8 @@ model Subscription {
 // PHASE 8: ADMIN FOUNDATION — AUDIT LOG & FEATURE FLAGS
 // ---------------------------------------------------------------------------
 
-/**
- * Append-only — every sensitive admin action writes one row here
- * (spec §64). Never updated or deleted through the application layer.
- */
+// Append-only — every sensitive admin action writes one row here
+// (spec §64). Never updated or deleted through the application layer.
 model AuditLog {
   id         String   @id @default(uuid())
   actorUserId String
@@ -1057,13 +1043,11 @@ enum SecurityEventType {
   PROVIDER_FAILURE
 }
 
-/**
- * Written by other modules when they observe a pattern worth a human's
- * attention (spec §65) — e.g. AuthService after N failed logins,
- * DeploymentsService after an unusual burst of deploy attempts. Never
- * sensationalized in its own text; severity conveys urgency, not the
- * message copy.
- */
+// Written by other modules when they observe a pattern worth a human's
+// attention (spec §65) — e.g. AuthService after N failed logins,
+// DeploymentsService after an unusual burst of deploy attempts. Never
+// sensationalized in its own text; severity conveys urgency, not the
+// message copy.
 model SecurityEvent {
   id         String            @id @default(uuid())
   type       SecurityEventType
