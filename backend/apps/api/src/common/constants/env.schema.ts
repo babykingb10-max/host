@@ -6,7 +6,7 @@ import { z } from 'zod';
  * adapter/config system must exist even when credentials are not yet
  * supplied) but each provider adapter independently reports a
  * PROVIDER_CONFIGURATION_ERROR at call time if its own required vars
- * are missing — see providers/*/*.adapter.ts.
+ * are missing — see the individual files under providers/&lt;name&gt;/.
  */
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
