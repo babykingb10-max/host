@@ -1,0 +1,36 @@
+# Shares the exact same build artifact as the API image — only the
+# final CMD differs, so a bug fix always ships to both processes
+# together. Build with: docker build -f Dockerfile.worker -t adevos-x-worker .
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npx prisma generate
+RUN npm run build
+
+FROM node:20-alpine AS prod-deps
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev
+COPY --from=build /app/prisma ./prisma
+RUN npx prisma generate
+
+FROM node:20-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+
+RUN addgroup -S adevos && adduser -S adevos -G adevos
+
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/prisma ./prisma
+COPY package.json ./
+
+USER adevos
+
+CMD ["node", "dist/apps/api/src/workers/worker.main.js"]

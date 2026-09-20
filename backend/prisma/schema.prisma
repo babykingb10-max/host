@@ -1,0 +1,1080 @@
+// Adevos-X Tech Host Platform — Prisma Schema
+// PHASE 1: Foundation models (auth, users, RBAC).
+// Additional entities (projects, deployments, providers, billing, credits,
+// bots, domains, etc.) are added incrementally in later phases per the
+// implementation plan, to keep each migration reviewable.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// USERS & AUTH
+// ---------------------------------------------------------------------------
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  username          String    @unique
+  phoneNumber       String?
+  passwordHash      String
+  displayName       String?
+  avatarUrl         String?
+  status            UserStatus @default(ACTIVE)
+  emailVerifiedAt   DateTime?
+  lastLoginAt       DateTime?
+  referralCode      String?   @unique
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  sessions          UserSession[]
+  refreshTokens     RefreshToken[]
+  userRoles         UserRole[]
+  loginHistory      LoginHistoryEntry[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  projects          Project[]
+  githubAccount     GithubAccount?
+  botsSubmitted     Bot[]            @relation("BotSubmitter")
+  botSubmissions    BotSubmission[]  @relation("BotSubmissions")
+  creditWallet      CreditWallet?
+  adRewardEvents    AdRewardEvent[]
+  referralsSent     ReferralEvent[]  @relation("Referrer")
+  referredBy        ReferralEvent?   @relation("Referred")
+  promotionClaims   PromotionClaim[]
+  subscription      Subscription?
+  notifications     Notification[]
+  notificationPreference NotificationPreference?
+  pushDeviceTokens  PushDeviceToken[]
+  storageBuckets    StorageBucket[]
+
+  @@index([status])
+  @@map("users")
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+model UserSession {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent     String?
+  ipAddress     String?
+  deviceLabel   String?
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  revokedAt     DateTime?
+
+  refreshTokens RefreshToken[]
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+model RefreshToken {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId     String
+  session       UserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tokenHash     String    @unique
+  family        String
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  replacedByTokenHash String?
+
+  @@index([userId])
+  @@index([family])
+  @@map("refresh_tokens")
+}
+
+model LoginHistoryEntry {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress   String?
+  userAgent   String?
+  success     Boolean
+  reason      String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@map("login_history")
+}
+
+model EmailVerificationToken {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  @@map("password_reset_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// RBAC
+// ---------------------------------------------------------------------------
+
+model Role {
+  id          String   @id @default(uuid())
+  key         RoleKey  @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+enum RoleKey {
+  SUPER_ADMIN
+  ADMIN
+  SUPPORT
+  FINANCE
+  INFRASTRUCTURE
+  CONTENT_MANAGER
+  USER
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique // e.g. "projects.restart"
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now())
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 2: SERVICE CATALOG & PROJECTS
+// ---------------------------------------------------------------------------
+
+/**
+ * The dynamic service catalog (spec §8, §86). Never hardcode service
+ * types in the frontend — everything the UI needs to render a service
+ * card and drive the deployment wizard lives here.
+ */
+model Service {
+  id                String   @id @default(uuid())
+  slug              String   @unique // e.g. "whatsapp-bot", "node-app"
+  name              String
+  description       String
+  icon              String
+  category          String
+  enabled           Boolean  @default(false)
+  supportedSources  String[] // "GITHUB" | "ZIP" | "DOCKER" | "TEMPLATE" | "ADMIN_CATALOG"
+  supportedRuntimes String[]
+  tags              String[]
+  requiredFields    Json     @default("[]")
+  optionalFields    Json     @default("[]")
+  capabilities      Json     @default("{}") // capability *template* — actual per-project capabilities also depend on provider
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plans    ServicePlan[]
+  projects Project[]
+  routingRules ProviderRoutingRule[]
+
+  @@index([enabled, category])
+  @@map("services")
+}
+
+model ServicePlan {
+  id            String   @id @default(uuid())
+  serviceId     String
+  service       Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  key           String // e.g. "starter", "pro"
+  name          String
+  cpuMillicores Int
+  ramMb         Int
+  storageMb     Int
+  priceAmount   Int // integer minor units — never float (spec §32)
+  priceCurrency String @default("credits")
+  isDefault     Boolean @default(false)
+  enabled       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects Project[]
+
+  @@unique([serviceId, key])
+  @@map("service_plans")
+}
+
+enum ProjectStatus {
+  CREATING
+  QUEUED
+  PROVISIONING
+  BUILDING
+  DEPLOYING
+  STARTING
+  HEALTH_CHECK
+  RUNNING
+  STOPPED
+  FAILED
+  CRASHED
+  RESTARTING
+  UNHEALTHY
+  SUSPENDED
+  DELETING
+  DELETED
+}
+
+model Project {
+  id                 String        @id @default(uuid())
+  ownerId            String
+  owner              User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name               String
+  slug               String
+  serviceId          String
+  service            Service       @relation(fields: [serviceId], references: [id])
+  servicePlanId      String
+  servicePlan        ServicePlan   @relation(fields: [servicePlanId], references: [id])
+  status             ProjectStatus @default(CREATING)
+
+  // Provider fields are nullable until the Provider Router (Phase 3)
+  // assigns and the Deployment Engine (Phase 4) provisions.
+  providerId         String?
+  providerResourceId String?
+  region             String?
+
+  runtime            String?
+  startCommand       String?
+  port               Int?
+  source             Json?   // { type, repoUrl?, branch?, imageRef?, ... } — populated by the deployment wizard (Phase 4/5)
+
+  // Capability flags this project currently supports (spec §12, §85).
+  // Defaults to all-false: nothing is enabled until the deployment
+  // engine + provider adapter actually back it — never fake availability.
+  capabilities       Json    @default("{\"start\":false,\"stop\":false,\"restart\":false,\"logs\":false,\"console\":false,\"backups\":false,\"domains\":false}")
+
+  createdAt          DateTime  @default(now())
+  updatedAt           DateTime @updatedAt
+  deletedAt           DateTime?
+
+  environmentVariables ProjectEnvironmentVariable[]
+  deployments          Deployment[]
+  githubLink           GithubRepositoryLink?
+  pairingSession       PairingSession?
+  domains              Domain[]
+  cronJob              CronJob?
+
+  @@unique([ownerId, slug])
+  @@index([ownerId, status])
+  @@map("projects")
+}
+
+model ProjectEnvironmentVariable {
+  id           String   @id @default(uuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  key          String
+  valueEncrypted String  // always stored encrypted (EncryptionService); secrets are never plaintext even for non-secret vars, cost of a single code path is worth the safety
+  isSecret     Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, key])
+  @@map("project_environment_variables")
+}
+
+/**
+ * Generic admin-configurable key/value settings (spec §67). Used from
+ * Phase 2 onward for things like default project quotas so they're
+ * never hardcoded; grows into the full Admin > Settings surface in
+ * Phase 9.
+ */
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 3: PROVIDER ABSTRACTION & ROUTING
+// ---------------------------------------------------------------------------
+
+enum ProviderKey {
+  PTERODACTYL
+  RENDER
+  VERCEL
+  CLOUDFLARE
+  HEROKU
+}
+
+enum ProviderHealthStatus {
+  HEALTHY
+  DEGRADED
+  UNAVAILABLE
+  MAINTENANCE
+  DISABLED
+}
+
+model Provider {
+  id        String       @id @default(uuid())
+  key       ProviderKey  @unique
+  name      String
+  enabled   Boolean      @default(false)
+  config    Json         @default("{}") // non-secret config only (base URLs, region defaults, ...)
+
+  healthStatus     ProviderHealthStatus @default(DISABLED)
+  healthLatencyMs  Int?
+  lastHealthCheckAt DateTime?
+  lastSuccessAt    DateTime?
+  lastFailureAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  credential    ProviderCredential?
+  routingRules  ProviderRoutingRule[]
+
+  @@map("providers")
+}
+
+/** Secrets only — always encrypted via EncryptionService before storage (spec §50, §57). */
+model ProviderCredential {
+  id                String   @id @default(uuid())
+  providerId        String   @unique
+  provider          Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  encryptedPayload  String   // JSON blob of provider-specific secrets, AES-256-GCM encrypted
+  updatedAt         DateTime @updatedAt
+
+  @@map("provider_credentials")
+}
+
+enum RoutingRole {
+  PRIMARY
+  SECONDARY
+  FALLBACK
+  DISABLED
+}
+
+/**
+ * Admin-configurable routing rules (spec §12, §58, §101). The Provider
+ * Router queries these — ordered by role then priority — to decide
+ * which provider handles a given service/plan/region combination.
+ * Never hardcode routing decisions in application code.
+ */
+model ProviderRoutingRule {
+  id         String      @id @default(uuid())
+  serviceId  String
+  service    Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  providerId String
+  provider   Provider    @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  role       RoutingRole
+  priority   Int         @default(0) // lower = tried first within the same role
+  conditions Json        @default("{}") // optional: { runtime?, plan?, region? }
+  enabled    Boolean     @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([serviceId, role, priority])
+  @@map("provider_routing_rules")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 4: DEPLOYMENT ENGINE
+// ---------------------------------------------------------------------------
+
+enum DeploymentStatus {
+  QUEUED
+  VALIDATING
+  PROVISIONING
+  BUILDING
+  DEPLOYING
+  STARTING
+  HEALTH_CHECK
+  RUNNING
+  FAILED
+  CANCELLED
+}
+
+model Deployment {
+  id          String           @id @default(uuid())
+  projectId   String
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status      DeploymentStatus @default(QUEUED)
+  attempt     Int              @default(1)
+  errorCode   String?
+  errorMessage String?
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  events DeploymentEvent[]
+
+  @@index([projectId, startedAt])
+  @@map("deployments")
+}
+
+enum DeploymentEventType {
+  STEP
+  LOG
+  ERROR
+}
+
+model DeploymentEvent {
+  id           String              @id @default(uuid())
+  deploymentId String
+  deployment   Deployment          @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  type         DeploymentEventType
+  step         DeploymentStatus?
+  message      String
+  createdAt    DateTime            @default(now())
+
+  @@index([deploymentId, createdAt])
+  @@map("deployment_events")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 5: GITHUB INTEGRATION & REPOSITORY ANALYZER
+// ---------------------------------------------------------------------------
+
+model GithubAccount {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  githubUserId         Int      @unique
+  githubUsername       String
+  accessTokenEncrypted String   // OAuth token, AES-256-GCM encrypted (spec §50)
+  scopes               String[]
+  connectedAt          DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("github_accounts")
+}
+
+/**
+ * Explicit, indexed link between a project and the GitHub repo/branch
+ * it deploys from — created when a GitHub-sourced deploy is triggered.
+ * Lets the webhook handler find the target project without scanning
+ * JSON blobs (spec §17: "Support optional automatic deployments").
+ */
+model GithubRepositoryLink {
+  id         String   @id @default(uuid())
+  projectId  String   @unique
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  ownerLogin String
+  repoName   String
+  branch     String
+  autoDeployEnabled Boolean @default(true)
+  updatedAt  DateTime @updatedAt
+
+  @@index([ownerLogin, repoName])
+  @@map("github_repository_links")
+}
+
+/** Dedup table for webhook idempotency (spec §17, §45). */
+model GithubWebhookDelivery {
+  deliveryId String   @id // GitHub's X-GitHub-Delivery header — globally unique per event
+  eventType  String
+  receivedAt DateTime @default(now())
+
+  @@map("github_webhook_deliveries")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 6: WHATSAPP BOT CATALOG & PAIRING
+// ---------------------------------------------------------------------------
+
+enum PairingMode {
+  PAIRING_CODE_SESSION_API
+  PAIRING_CODE_SESSION_WHATSAPP
+  QR_CODE
+  EXTERNAL_PAIRING
+  MANUAL_SESSION
+  NO_PAIRING
+}
+
+enum BotVisibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+model Bot {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  logoUrl     String?
+  bannerUrl   String?
+  category    String
+  tags        String[]
+
+  repository       String?
+  branch           String?
+  runtime          String // NODE | PYTHON | DOCKER
+  runtimeVersion   String?
+  packageManager   String?
+  startCommand     String?
+  dockerImage      String?
+
+  requiredEnvFields Json @default("[]") // [{ key, type, required, source? }] — spec §15 example schema
+  optionalEnvFields Json @default("[]")
+  resourceRequirements Json @default("{}") // { cpuMillicores, ramMb, storageMb }
+
+  pairingMode        PairingMode @default(NO_PAIRING)
+  pairingServiceUrl  String?     // for PAIRING_CODE_SESSION_API / EXTERNAL_PAIRING adapters
+  documentationUrl   String?
+
+  visibility  BotVisibility @default(PUBLIC)
+  approved    Boolean       @default(false)
+  disabled    Boolean       @default(false)
+
+  submittedByUserId String?
+  submittedBy       User?    @relation("BotSubmitter", fields: [submittedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  submissions BotSubmission[]
+
+  @@index([approved, disabled, visibility])
+  @@map("bots")
+}
+
+enum BotSubmissionStatus {
+  PENDING
+  UNDER_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  REJECTED
+  HIDDEN
+  DISABLED
+}
+
+model BotSubmission {
+  id          String              @id @default(uuid())
+  botId       String?             // set once a Bot record is created/linked on approval
+  bot         Bot?                @relation(fields: [botId], references: [id])
+  submittedByUserId String
+  submittedBy User                @relation("BotSubmissions", fields: [submittedByUserId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String
+  repository  String
+  branch      String
+  demoUrl     String?
+  screenshots String[]
+  documentationUrl String?
+
+  runtime          String
+  startCommand     String?
+  packageManager   String?
+  pairingMode      PairingMode @default(NO_PAIRING)
+  pairingServiceUrl String?
+  environmentVariables Json @default("[]")
+  resourceRequirements Json @default("{}")
+
+  ownershipNotes String?
+  contactEmail   String
+
+  status       BotSubmissionStatus @default(PENDING)
+  reviewNotes  String?
+  reviewedByUserId String?
+  reviewedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bot_submissions")
+}
+
+enum PairingSessionStatus {
+  PENDING
+  AWAITING_DEVICE
+  CODE_ISSUED
+  QR_ISSUED
+  CONNECTED
+  FAILED
+  EXPIRED
+  CANCELLED
+}
+
+/**
+ * One active pairing attempt per project. QR_CODE and
+ * PAIRING_CODE_SESSION_WHATSAPP modes are fulfilled by the deployed bot
+ * container itself (it performs the actual WhatsApp multi-device link
+ * and reports back) — see PairingCallbackController. API-based modes
+ * are fulfilled synchronously by PairingService calling the configured
+ * external adapter (spec §15).
+ */
+model PairingSession {
+  id          String                @id @default(uuid())
+  projectId   String                @unique
+  project     Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mode        PairingMode
+  status      PairingSessionStatus  @default(PENDING)
+  phoneNumber String?
+  pairingCode String?
+  qrCodeData  String?               // raw QR payload string (frontend renders it); never a WhatsApp session secret
+  sessionEncrypted String?          // the actual WhatsApp session, encrypted — never returned via API once stored
+  callbackTokenHash String          // proves the deployed bot instance making the callback is this session's own
+  errorMessage String?
+  expiresAt   DateTime
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@map("pairing_sessions")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 7: CREDITS, EARN, BILLING & SUBSCRIPTIONS
+// ---------------------------------------------------------------------------
+
+model CreditWallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance   Int      @default(0) // integer minor units (spec §31, §32 — never float)
+  updatedAt DateTime @updatedAt
+
+  transactions CreditTransaction[]
+
+  @@map("credit_wallets")
+}
+
+enum CreditTransactionType {
+  REFERRAL
+  REWARDED_AD
+  DAILY_CHECKIN
+  PROMOTION
+  HOSTING_CHARGE
+  ADMIN_ADJUSTMENT
+  SUBSCRIPTION_PURCHASE
+}
+
+/**
+ * Append-only ledger — the wallet's `balance` is a cached sum, never
+ * the source of truth by itself. Every mutation goes through
+ * CreditsService inside a transaction that writes both (spec §31).
+ */
+model CreditTransaction {
+  id        String                 @id @default(uuid())
+  walletId  String
+  wallet    CreditWallet           @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount    Int                    // positive = earned, negative = spent
+  type      CreditTransactionType
+  reason    String
+  reference String?                // e.g. adRewardEventId, referralEventId, projectId
+  metadata  Json                   @default("{}")
+  createdAt DateTime               @default(now())
+
+  @@index([walletId, createdAt])
+  @@map("credit_transactions")
+}
+
+model AdProvider {
+  id            String   @id @default(uuid())
+  key           String   @unique // e.g. "ADSTERRA", "ADMOB"
+  name          String
+  enabled       Boolean  @default(false)
+  rewardAmount  Int      @default(10)
+  dailyLimit    Int      @default(5)
+  cooldownSeconds Int    @default(300)
+  config        Json     @default("{}")
+
+  events AdRewardEvent[]
+
+  @@map("ad_providers")
+}
+
+enum AdEventStage {
+  IMPRESSION
+  STARTED
+  COMPLETED
+  REWARDED
+  REJECTED
+}
+
+model AdRewardEvent {
+  id          String       @id @default(uuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerId  String
+  provider    AdProvider   @relation(fields: [providerId], references: [id])
+  stage       AdEventStage
+  rejectionReason String?
+  createdAt   DateTime     @default(now())
+
+  @@index([userId, createdAt])
+  @@map("ad_reward_events")
+}
+
+model ReferralEvent {
+  id              String   @id @default(uuid())
+  referrerUserId  String
+  referrer        User     @relation("Referrer", fields: [referrerUserId], references: [id], onDelete: Cascade)
+  referredUserId  String   @unique
+  referred        User     @relation("Referred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  rewardedAt      DateTime? // set once the milestone (referred user verifies email) is reached and reward is granted
+  rewardAmount    Int?
+  createdAt       DateTime @default(now())
+
+  @@map("referral_events")
+}
+
+model PromotionCampaign {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  rewardAmount Int
+  startAt     DateTime
+  endAt       DateTime
+  usageLimit  Int?     // total claims across all users; null = unlimited
+  perUserLimit Int     @default(1)
+  active      Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  claims PromotionClaim[]
+
+  @@map("promotion_campaigns")
+}
+
+model PromotionClaim {
+  id         String            @id @default(uuid())
+  campaignId String
+  campaign   PromotionCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  claimedAt  DateTime          @default(now())
+
+  @@unique([campaignId, userId])
+  @@map("promotion_claims")
+}
+
+enum SubscriptionPlanTier {
+  FREE
+  STARTER
+  PRO
+  BUSINESS
+}
+
+model SubscriptionPlan {
+  id          String                @id @default(uuid())
+  tier        SubscriptionPlanTier  @unique
+  name        String
+  priceAmount Int                   // integer minor units
+  priceCurrency String              @default("credits")
+  maxProjects Int
+  maxDeploymentsPerDay Int
+  allowsCustomDomains Boolean       @default(false)
+  allowsBackups       Boolean       @default(false)
+  alwaysOn            Boolean       @default(false)
+  enabled     Boolean               @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+model Subscription {
+  id        String             @id @default(uuid())
+  userId    String             @unique
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId    String
+  plan      SubscriptionPlan   @relation(fields: [planId], references: [id])
+  status    SubscriptionStatus @default(ACTIVE)
+  startedAt DateTime           @default(now())
+  expiresAt DateTime?
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("subscriptions")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 8: ADMIN FOUNDATION — AUDIT LOG & FEATURE FLAGS
+// ---------------------------------------------------------------------------
+
+/**
+ * Append-only — every sensitive admin action writes one row here
+ * (spec §64). Never updated or deleted through the application layer.
+ */
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorUserId String
+  actorRole   String?
+  action     String   // e.g. "ADMIN_SUSPENDED_USER"
+  targetType String   // e.g. "User", "Project", "Provider"
+  targetId   String
+  result     String   @default("SUCCESS") // SUCCESS | FAILURE
+  ipAddress  String?
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}
+
+model FeatureFlag {
+  key         String   @id // e.g. "WHATSAPP_HOSTING"
+  label       String
+  description String?
+  enabled     Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+
+  @@map("feature_flags")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 9: DOMAINS & NOTIFICATIONS
+// ---------------------------------------------------------------------------
+
+enum DomainStatus {
+  PENDING
+  VERIFYING
+  VERIFIED
+  CONNECTED
+  FAILED
+  DISCONNECTED
+}
+
+model Domain {
+  id                String       @id @default(uuid())
+  projectId         String
+  project           Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  domainName        String       @unique
+  status            DomainStatus @default(PENDING)
+  verificationToken String
+  verifiedAt        DateTime?
+  sslStatus         String       @default("PENDING") // PENDING | ACTIVE | FAILED — real issuance is provider-driven (Cloudflare)
+  lastCheckedAt     DateTime?
+  failureReason     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@map("domains")
+}
+
+enum NotificationType {
+  DEPLOYMENT_COMPLETED
+  DEPLOYMENT_FAILED
+  PROJECT_CRASHED
+  DOMAIN_VERIFIED
+  DOMAIN_FAILED
+  REWARD_AVAILABLE
+  SECURITY_ALERT
+  ANNOUNCEMENT
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String
+  metadata  Json             @default("{}")
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  userId               String  @id
+  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inAppEnabled         Boolean @default(true)
+  pushEnabled          Boolean @default(true)
+  emailEnabled         Boolean @default(true)
+  deploymentEvents     Boolean @default(true)
+  billingEvents        Boolean @default(true)
+  securityEvents       Boolean @default(true)
+  promotionalEvents    Boolean @default(true)
+  updatedAt            DateTime @updatedAt
+
+  @@map("notification_preferences")
+}
+
+model PushDeviceToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String // "web" | "ios" | "android"
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("push_device_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 10: STORAGE & CRON
+// ---------------------------------------------------------------------------
+
+model StorageBucket {
+  id        String   @id @default(uuid())
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime @default(now())
+
+  files StorageFile[]
+
+  @@unique([ownerId, name])
+  @@map("storage_buckets")
+}
+
+model StorageFile {
+  id          String        @id @default(uuid())
+  bucketId    String
+  bucket      StorageBucket @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+  key         String        // path within the bucket, e.g. "images/logo.png"
+  sizeBytes   Int
+  contentType String
+  createdAt   DateTime      @default(now())
+
+  @@unique([bucketId, key])
+  @@map("storage_files")
+}
+
+model CronJob {
+  id          String    @id @default(uuid())
+  projectId   String    @unique
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  schedule    String    // standard 5-field cron expression
+  enabled     Boolean   @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  executions CronExecution[]
+
+  @@map("cron_jobs")
+}
+
+model CronExecution {
+  id           String   @id @default(uuid())
+  cronJobId    String
+  cronJob      CronJob  @relation(fields: [cronJobId], references: [id], onDelete: Cascade)
+  deploymentId String?  // links to the Deployment this run triggered, for status/logs
+  triggeredAt  DateTime @default(now())
+
+  @@index([cronJobId, triggeredAt])
+  @@map("cron_executions")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 11: SECURITY CENTER
+// ---------------------------------------------------------------------------
+
+enum SecuritySeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SecurityEventType {
+  SUSPICIOUS_LOGIN
+  BRUTE_FORCE_ATTEMPT
+  ABNORMAL_REWARD_CLAIM
+  EXCESSIVE_DEPLOYMENTS
+  RESOURCE_ABUSE
+  WEBHOOK_ANOMALY
+  PROVIDER_FAILURE
+}
+
+/**
+ * Written by other modules when they observe a pattern worth a human's
+ * attention (spec §65) — e.g. AuthService after N failed logins,
+ * DeploymentsService after an unusual burst of deploy attempts. Never
+ * sensationalized in its own text; severity conveys urgency, not the
+ * message copy.
+ */
+model SecurityEvent {
+  id         String            @id @default(uuid())
+  type       SecurityEventType
+  severity   SecuritySeverity
+  userId     String?
+  ipAddress  String?
+  message    String
+  metadata   Json              @default("{}")
+  resolved   Boolean           @default(false)
+  createdAt  DateTime          @default(now())
+
+  @@index([severity, resolved, createdAt])
+  @@map("security_events")
+}

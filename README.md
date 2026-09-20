@@ -106,4 +106,3 @@ build → Docker image on every push, and fails the pipeline on any TypeScript e
   sessions, environment variable secrets) — plan key rotation accordingly.
 - The API and worker are separate containers/processes by design — scale them independently.
 - Run `npx prisma migrate deploy` (not `migrate dev`) in production.
-

@@ -1,0 +1,69 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: adevos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-adevos}
+      POSTGRES_DB: adevos_x
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adevos"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: { context: ./backend, dockerfile: Dockerfile }
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://adevos:${POSTGRES_PASSWORD:-adevos}@postgres:5432/adevos_x?schema=public
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports: ["4000:4000"]
+    volumes: ["storage-data:/app/storage-data"]
+
+  worker:
+    build: { context: ./backend, dockerfile: Dockerfile.worker }
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://adevos:${POSTGRES_PASSWORD:-adevos}@postgres:5432/adevos_x?schema=public
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes: ["storage-data:/app/storage-data"]
+
+  web:
+    build: { context: ./frontend, dockerfile: Dockerfile }
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api
+      NEXT_PUBLIC_WS_URL: ws://localhost:4000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      API_URL: http://api:4000/api
+    depends_on: [api]
+    ports: ["3000:3000"]
+
+volumes:
+  postgres-data:
+  redis-data:
+  storage-data:

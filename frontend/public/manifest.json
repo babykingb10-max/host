@@ -1,0 +1,10 @@
+{
+  "name": "Adevos-X Tech Host",
+  "short_name": "Adevos-X",
+  "description": "One platform to host WhatsApp bots, websites, APIs, game servers and more.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "icons": []
+}
