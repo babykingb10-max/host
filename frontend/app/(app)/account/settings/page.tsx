@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { GithubConnectionCard } from '@/components/project/github-connection-card';
 
 export default function AccountSettingsPage() {
@@ -7,7 +8,9 @@ export default function AccountSettingsPage() {
 
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Integrations</h2>
-        <GithubConnectionCard />
+        <Suspense fallback={null}>
+          <GithubConnectionCard />
+        </Suspense>
       </section>
     </div>
   );
