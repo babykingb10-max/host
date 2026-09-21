@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { parseRedisConnection } from '../common/utils/redis-connection';
+import { createRedisClient } from '../common/utils/redis-connection';
 
 /**
  * Central BullMQ wiring. Queue *names* are declared here so health checks
@@ -33,8 +33,12 @@ export const QUEUE_NAMES = [
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
+      // Pass an already-constructed ioredis client (not a plain options
+      // object) — this is the most robust way to guarantee BullMQ uses
+      // our exact TLS/family/retry configuration rather than relying on
+      // its own pass-through of a raw options object.
       useFactory: (config: ConfigService) => ({
-        connection: parseRedisConnection(config.get<string>('REDIS_URL')!),
+        connection: createRedisClient(config.get<string>('REDIS_URL')!),
       }),
     }),
     BullModule.registerQueue(...QUEUE_NAMES.map((name) => ({ name }))),
