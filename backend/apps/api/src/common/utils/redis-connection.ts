@@ -1,31 +1,40 @@
-import type { RedisOptions } from 'ioredis';
+import Redis, { type RedisOptions } from 'ioredis';
 
 /**
- * Parses a REDIS_URL into explicit ioredis options rather than passing
- * the raw string through. This is required because managed Redis
- * providers (Redis Cloud, Heroku Data for Redis, etc.) commonly serve
- * TLS (`rediss://`) endpoints with a self-signed or provider-internal
- * CA certificate — ioredis's default TLS behavior rejects those
- * (`rejectUnauthorized: true`), causing an infinite reconnect loop
- * that never actually connects. Disabling certificate verification
- * here is standard practice for these providers: the connection is
- * still encrypted, only the CA chain check is relaxed.
+ * Creates an ioredis client configured for managed Redis providers
+ * (Heroku Data for Redis, Redis Cloud, etc.) that present a
+ * self-signed/provider-internal TLS certificate. Two issues these
+ * providers commonly trigger, both handled here:
+ *
+ * 1. ioredis's default TLS behavior rejects unverifiable certificate
+ *    chains (`rejectUnauthorized: true`) — the connection is still
+ *    encrypted, only the CA check is relaxed.
+ * 2. Heroku's networking layer intermittently resolves addon hostnames
+ *    to an IPv6 address that resets the socket mid-TLS-handshake
+ *    ("Client network socket disconnected before secure TLS connection
+ *    was established"); forcing IPv4 resolution (`family: 4`) is the
+ *    documented fix.
+ *
+ * The raw connection string is passed through to ioredis's own URL
+ * parser (rather than manually decomposing it) so username/password/
+ * query-string edge cases are handled exactly as ioredis expects.
  */
-export function parseRedisConnection(redisUrl: string): RedisOptions {
-  const url = new URL(redisUrl);
-  const isTLS = url.protocol === 'rediss:';
+export function createRedisClient(redisUrl: string, extra: Partial<RedisOptions> = {}): Redis {
+  const isTLS = redisUrl.startsWith('rediss://');
 
-  const options: RedisOptions = {
-    host: url.hostname,
-    port: Number(url.port) || 6379,
-    ...(url.username ? { username: decodeURIComponent(url.username) } : {}),
-    ...(url.password ? { password: decodeURIComponent(url.password) } : {}),
+  const options: Partial<RedisOptions> = {
+    family: 4,
     maxRetriesPerRequest: null,
+    connectTimeout: 15_000,
+    retryStrategy: (times: number) => Math.min(times * 200, 5_000),
+    ...(isTLS ? { tls: { rejectUnauthorized: false } } : {}),
+    ...extra,
   };
 
-  if (isTLS) {
-    options.tls = { rejectUnauthorized: false };
-  }
-
-  return options;
+  const client = new Redis(redisUrl, options);
+  client.on('error', (err) => {
+    // eslint-disable-next-line no-console
+    console.error(`[redis] connection error: ${err.message}`);
+  });
+  return client;
 }
