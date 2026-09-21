@@ -1,7 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Redis from 'ioredis';
-import { parseRedisConnection } from './utils/redis-connection';
+import type Redis from 'ioredis';
+import { createRedisClient } from './utils/redis-connection';
 
 export type PubSubHandler = (payload: string) => void;
 
@@ -12,7 +12,7 @@ export class RedisPubSubService implements OnModuleDestroy {
   private readonly handlers = new Map<string, Set<PubSubHandler>>();
 
   constructor(private readonly config: ConfigService) {
-    this.publisher = new Redis({ ...parseRedisConnection(this.config.get<string>('REDIS_URL')!), maxRetriesPerRequest: 3 });
+    this.publisher = createRedisClient(this.config.get<string>('REDIS_URL')!, { maxRetriesPerRequest: 3 });
   }
 
   async publish(channel: string, payload: unknown): Promise<void> {
@@ -22,7 +22,7 @@ export class RedisPubSubService implements OnModuleDestroy {
   /** Returns an unsubscribe function. Lazily creates the shared subscriber connection (ioredis requires a dedicated connection once in subscribe mode). */
   async subscribe(channel: string, handler: PubSubHandler): Promise<() => Promise<void>> {
     if (!this.subscriber) {
-      this.subscriber = new Redis({ ...parseRedisConnection(this.config.get<string>('REDIS_URL')!), maxRetriesPerRequest: 3 });
+      this.subscriber = createRedisClient(this.config.get<string>('REDIS_URL')!, { maxRetriesPerRequest: 3 });
       this.subscriber.on('message', (ch, message) => {
         this.handlers.get(ch)?.forEach((h) => h(message));
       });
