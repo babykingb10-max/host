@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { parseRedisConnection } from '../common/utils/redis-connection';
 
 /**
  * Central BullMQ wiring. Queue *names* are declared here so health checks
@@ -33,7 +34,7 @@ export const QUEUE_NAMES = [
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        connection: { url: config.get<string>('REDIS_URL') },
+        connection: parseRedisConnection(config.get<string>('REDIS_URL')!),
       }),
     }),
     BullModule.registerQueue(...QUEUE_NAMES.map((name) => ({ name }))),
