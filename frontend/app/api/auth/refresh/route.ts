@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
   if (!refreshResult.ok || !refreshResult.body.success) {
     const response = NextResponse.json(refreshResult.body, { status: refreshResult.status });
-    response.cookies.delete(REFRESH_COOKIE_NAME);
+    response.cookies.delete({ name: REFRESH_COOKIE_NAME, path: '/' });
     return response;
   }
 
