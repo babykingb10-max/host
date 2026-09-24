@@ -8,6 +8,6 @@ export async function POST(req: NextRequest) {
   }
 
   const response = NextResponse.json({ success: true, data: null });
-  response.cookies.delete(REFRESH_COOKIE_NAME);
+  response.cookies.delete({ name: REFRESH_COOKIE_NAME, path: '/' });
   return response;
 }
