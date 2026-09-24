@@ -25,6 +25,6 @@
       "@common/*": ["apps/api/src/common/*"]
     }
   },
-  "include": ["apps/**/*.ts", "prisma/seed.ts"],
+  "include": ["apps/**/*.ts", "prisma/*.ts"],
   "exclude": ["node_modules", "dist", "test"]
 }
