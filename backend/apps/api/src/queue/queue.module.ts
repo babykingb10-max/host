@@ -13,19 +13,13 @@ import { createRedisClient } from '../common/utils/redis-connection';
  */
 export const QUEUE_NAMES = [
   'deployment',
-  'restart',
-  'stop',
-  'delete',
-  'backup',
-  'restore',
-  'health-check',
-  'provider-sync',
-  'github',
-  'notifications',
-  'billing',
-  'webhooks',
-  'analytics',
   'cron',
+  // Re-add below as each processor ships (spec §44) — every registered
+  // queue opens its own Redis connection, and the Heroku Redis mini
+  // tier's connection cap was being exceeded with all 14 declared
+  // up front while only 'deployment' and 'cron' had processors:
+  // 'restart', 'stop', 'delete', 'backup', 'restore', 'health-check',
+  // 'provider-sync', 'github', 'notifications', 'billing', 'webhooks', 'analytics',
 ] as const;
 
 @Module({
